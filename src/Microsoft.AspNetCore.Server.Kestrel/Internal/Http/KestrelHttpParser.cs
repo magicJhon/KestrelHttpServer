@@ -61,17 +61,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 end = buffer.Move(end, 1);
                 var startLineBuffer = buffer.Slice(start, end);
 
-                if (startLineBuffer.IsSingleSpan)
-                {
-                    // No copies, directly use the one and only span
-                    span = startLineBuffer.First.Span;
-                }
-                else
-                {
-                    // We're not a single span here but we can use pooled arrays to avoid allocations in the rare case
-                    span = new Span<byte>(new byte[startLineBuffer.Length]);
-                    startLineBuffer.CopyTo(span);
-                }
+                span = startLineBuffer.ToSpan();
             }
 
             var pathStart = -1;
@@ -80,7 +70,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             var pathEnd = -1;
             var versionStart = -1;
 
-            HttpVersion httpVersion = HttpVersion.Unknown;
+            var httpVersion = HttpVersion.Unknown;
             HttpMethod method;
             Span<byte> customMethod;
             int i = 0;
@@ -257,138 +247,73 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             return true;
         }
 
-        public unsafe bool ParseHeaders<T>(T handler, ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined, out int consumedBytes) where T : IHttpHeadersHandler
+        public bool ParseHeaders<T>(T handler, ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined, out int consumedBytes) where T : IHttpHeadersHandler
         {
             consumed = buffer.Start;
             examined = buffer.End;
             consumedBytes = 0;
 
+            var result = false;
             if (buffer.IsSingleSpan)
             {
-                var result = TakeMessageHeadersSingleSpan(handler, buffer.First.Span, out consumedBytes);
-                consumed = buffer.Move(consumed, consumedBytes);
-
-                if (result)
-                {
-                    examined = consumed;
-                }
-
-                return result;
+                result = TakeMessageHeadersSingleSpan(handler, buffer.First.Span, out consumedBytes);
+            }
+            else
+            {
+                result = TakeMessageHeadersMultiSpan(handler, buffer, out consumedBytes);
             }
 
-            var bufferEnd = buffer.End;
+            consumed = buffer.Move(consumed, consumedBytes);
 
-            var reader = new ReadableBufferReader(buffer);
+            if (result)
+            {
+                examined = consumed;
+            }
+
+            return result;
+        }
+
+        private bool TakeMessageHeadersMultiSpan<T>(T handler, ReadableBuffer buffer, out int consumedBytes) where T : IHttpHeadersHandler
+        {
+            var start = buffer.Start;
+            var end = buffer.End;
+            consumedBytes = 0;
+
             while (true)
             {
-                var start = reader;
-                int ch1 = reader.Take();
-                var ch2 = reader.Take();
-
-                if (ch1 == -1)
+                if (ReadCursorOperations.Seek(start, end, out var lineEnd, ByteLF) == -1)
                 {
                     return false;
                 }
 
-                if (ch1 == ByteCR)
-                {
-                    // Check for final CRLF.
-                    if (ch2 == -1)
-                    {
-                        return false;
-                    }
-                    else if (ch2 == ByteLF)
-                    {
-                        consumed = reader.Cursor;
-                        examined = consumed;
-                        return true;
-                    }
-
-                    // Headers don't end in CRLF line.
-                    RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
-                }
-                else if (ch1 == ByteSpace || ch1 == ByteTab)
-                {
-                    RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
-                }
-
-                // Reset the reader since we're not at the end of headers
-                reader = start;
-
-                if (ReadCursorOperations.Seek(consumed, bufferEnd, out var lineEnd, ByteLF) == -1)
-                {
-                    return false;
-                }
-
-                if (lineEnd != bufferEnd)
+                if (lineEnd != end)
                 {
                     lineEnd = buffer.Move(lineEnd, 1);
                 }
 
-                var headerBuffer = buffer.Slice(consumed, lineEnd);
+                var headerBuffer = buffer.Slice(start, lineEnd);
+                var span = headerBuffer.ToSpan();
+                var result = TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd);
 
-                Span<byte> span;
-                if (headerBuffer.IsSingleSpan)
+                consumedBytes += span.Length;
+                start = buffer.Move(start, span.Length);
+
+                switch (result)
                 {
-                    // No copies, directly use the one and only span
-                    span = headerBuffer.First.Span;
-                }
-                else
-                {
-                    // We're not a single span here but we can use pooled arrays to avoid allocations in the rare case
-                    span = new Span<byte>(new byte[headerBuffer.Length]);
-                    headerBuffer.CopyTo(span);
-                }
-
-                if (!TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
-                {
-                    return false;
-                }
-
-                // Skip the reader forward past the header line
-                reader.Skip(span.Length);
-
-                // Before accepting the header line, we need to see at least one character
-                // > so we can make sure there's no space or tab
-                var next = reader.Peek();
-
-                // TODO: We don't need to reject the line here, we can use the state machine
-                // to store the fact that we're reading a header value
-                if (next == -1)
-                {
-                    // If we can't see the next char then reject the entire line
-                    return false;
-                }
-
-                if (next == ByteSpace || next == ByteTab)
-                {
-                    // From https://tools.ietf.org/html/rfc7230#section-3.2.4:
-                    //
-                    // Historically, HTTP header field values could be extended over
-                    // multiple lines by preceding each extra line with at least one space
-                    // or horizontal tab (obs-fold).  This specification deprecates such
-                    // line folding except within the message/http media type
-                    // (Section 8.3.1).  A sender MUST NOT generate a message that includes
-                    // line folding (i.e., that has any field-value that contains a match to
-                    // the obs-fold rule) unless the message is intended for packaging
-                    // within the message/http media type.
-                    //
-                    // A server that receives an obs-fold in a request message that is not
-                    // within a message/http container MUST either reject the message by
-                    // sending a 400 (Bad Request), preferably with a representation
-                    // explaining that obsolete line folding is unacceptable, or replace
-                    // each received obs-fold with one or more SP octets prior to
-                    // interpreting the field value or forwarding the message downstream.
-                    RejectRequest(RequestRejectionReason.HeaderValueLineFoldingNotSupported);
+                    case HeaderResult.Incomplete:
+                        return false;
+                    case HeaderResult.SingleHeader:
+                        break;
+                    case HeaderResult.AllHeaders:
+                        return true;
+                    default:
+                        break;
                 }
 
                 var nameBuffer = span.Slice(nameStart, nameEnd - nameStart);
                 var valueBuffer = span.Slice(valueStart, valueEnd - valueStart);
-                consumedBytes += span.Length;
 
                 handler.OnHeader(nameBuffer, valueBuffer);
-
-                consumed = reader.Cursor;
             }
         }
 
@@ -402,29 +327,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             {
                 while (true)
                 {
-                    if (remaining < 2)
+                    if (remaining == 0)
                     {
                         return false;
-                    }
-
-                    var ch1 = data[index];
-                    var ch2 = data[index + 1];
-
-                    if (ch1 == ByteCR)
-                    {
-                        // Check for final CRLF.
-                        if (ch2 == ByteLF)
-                        {
-                            consumedBytes += 2;
-                            return true;
-                        }
-
-                        // Headers don't end in CRLF line.
-                        RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
-                    }
-                    else if (ch1 == ByteSpace || ch1 == ByteTab)
-                    {
-                        RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
                     }
 
                     var endOfLineIndex = IndexOf(data, index, headersSpan.Length, ByteLF);
@@ -435,51 +340,28 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     }
 
                     var span = new Span<byte>(data + index, (endOfLineIndex - index + 1));
+                    var result = TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd);
+
+                    consumedBytes += span.Length;
+                    remaining -= span.Length;
                     index += span.Length;
 
-                    if (!TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
+                    switch (result)
                     {
-                        return false;
-                    }
-
-                    if ((endOfLineIndex + 1) >= headersSpan.Length)
-                    {
-                        return false;
-                    }
-
-                    // Before accepting the header line, we need to see at least one character
-                    // > so we can make sure there's no space or tab
-                    var next = data[index];
-
-                    if (next == ByteSpace || next == ByteTab)
-                    {
-                        // From https://tools.ietf.org/html/rfc7230#section-3.2.4:
-                        //
-                        // Historically, HTTP header field values could be extended over
-                        // multiple lines by preceding each extra line with at least one space
-                        // or horizontal tab (obs-fold).  This specification deprecates such
-                        // line folding except within the message/http media type
-                        // (Section 8.3.1).  A sender MUST NOT generate a message that includes
-                        // line folding (i.e., that has any field-value that contains a match to
-                        // the obs-fold rule) unless the message is intended for packaging
-                        // within the message/http media type.
-                        //
-                        // A server that receives an obs-fold in a request message that is not
-                        // within a message/http container MUST either reject the message by
-                        // sending a 400 (Bad Request), preferably with a representation
-                        // explaining that obsolete line folding is unacceptable, or replace
-                        // each received obs-fold with one or more SP octets prior to
-                        // interpreting the field value or forwarding the message downstream.
-                        RejectRequest(RequestRejectionReason.HeaderValueLineFoldingNotSupported);
+                        case HeaderResult.Incomplete:
+                            return false;
+                        case HeaderResult.SingleHeader:
+                            break;
+                        case HeaderResult.AllHeaders:
+                            return true;
+                        default:
+                            break;
                     }
 
                     var nameBuffer = span.Slice(nameStart, nameEnd - nameStart);
                     var valueBuffer = span.Slice(valueStart, valueEnd - valueStart);
 
                     handler.OnHeader(nameBuffer, valueBuffer);
-
-                    consumedBytes += span.Length;
-                    remaining -= span.Length;
                 }
             }
         }
@@ -496,7 +378,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             return -1;
         }
 
-        private unsafe bool TakeSingleHeader(Span<byte> span, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
+        private unsafe HeaderResult TakeSingleHeader(Span<byte> span, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
         {
             nameStart = 0;
             nameEnd = -1;
@@ -510,8 +392,35 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             var done = false;
             fixed (byte* data = &span.DangerousGetPinnableReference())
             {
-                switch (HeaderState.Name)
+                switch (HeaderState.End)
                 {
+                    case HeaderState.End:
+                        if (headerLineLength < 2)
+                        {
+                            return HeaderResult.Incomplete;
+                        }
+
+                        var ch1 = data[0];
+
+                        if (ch1 == ByteCR)
+                        {
+                            var ch2 = data[1];
+
+                            // Check for final CRLF.
+                            if (ch2 == ByteLF)
+                            {
+                                return HeaderResult.AllHeaders;
+                            }
+
+                            // Headers don't end in CRLF line.
+                            RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
+                        }
+                        else if (ch1 == ByteSpace || ch1 == ByteTab)
+                        {
+                            RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
+                        }
+
+                        goto case HeaderState.Name;
                     case HeaderState.Name:
                         for (; i < headerLineLength; i++)
                         {
@@ -619,7 +528,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
             }
 
-            return done;
+            return done ? HeaderResult.SingleHeader : HeaderResult.Incomplete;
         }
 
         private static bool IsValidTokenChar(char c)
@@ -674,8 +583,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         }
 
+        private enum HeaderResult
+        {
+            Incomplete,
+            SingleHeader,
+            AllHeaders
+        }
+
         private enum HeaderState
         {
+            End,
             Name,
             Whitespace,
             ExpectValue,
