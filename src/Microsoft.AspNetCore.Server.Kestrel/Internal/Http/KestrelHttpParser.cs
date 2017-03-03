@@ -4,6 +4,7 @@
 using System;
 using System.Buffers;
 using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
 using Microsoft.Extensions.Logging;
 
@@ -484,6 +485,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private unsafe int IndexOf(byte* data, int index, int length, byte value)
         {
             for (int i = index; i < length; i++)
@@ -496,130 +498,70 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             return -1;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe int IndexOfAny(byte* data, int index, int length, byte value1, byte value2)
+        {
+            for (int i = index; i < length; i++)
+            {
+                if (data[i] == value2 || data[i] == value2)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private unsafe bool TakeSingleHeader(Span<byte> span, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
         {
             nameStart = 0;
             nameEnd = -1;
             valueStart = -1;
             valueEnd = -1;
-            var headerLineLength = span.Length;
-            var nameHasWhitespace = false;
-            var previouslyWhitespace = false;
+            var length = span.Length;
 
-            int i = 0;
-            var done = false;
-            fixed (byte* data = &span.DangerousGetPinnableReference())
+            fixed (byte* pHeader = &span.DangerousGetPinnableReference())
             {
-                switch (HeaderState.Name)
+                nameEnd = IndexOf(pHeader, 0, length, ByteColon);
+                if (nameEnd == -1)
                 {
-                    case HeaderState.Name:
-                        for (; i < headerLineLength; i++)
-                        {
-                            var ch = data[i];
-                            if (ch == ByteColon)
-                            {
-                                if (nameHasWhitespace)
-                                {
-                                    RejectRequest(RequestRejectionReason.WhitespaceIsNotAllowedInHeaderName);
-                                }
-                                nameEnd = i;
+                    RejectRequest(RequestRejectionReason.NoColonCharacterFoundInHeaderLine);
+                }
 
-                                // Consume space
-                                i++;
+                if (IndexOfAny(pHeader, 0, nameEnd, ByteSpace, ByteTab) != -1)
+                {
+                    RejectRequest(RequestRejectionReason.WhitespaceIsNotAllowedInHeaderName);
+                }
 
-                                goto case HeaderState.Whitespace;
-                            }
+                // Skip colon
+                valueStart = nameEnd + 1;
 
-                            if (ch == ByteSpace || ch == ByteTab)
-                            {
-                                nameHasWhitespace = true;
-                            }
-                        }
-                        RejectRequest(RequestRejectionReason.NoColonCharacterFoundInHeaderLine);
-
+                // Skip whitespace
+                for (; valueStart < length; valueStart++)
+                {
+                    byte ch = *(pHeader + valueEnd);
+                    if (ch != ByteTab && ch != ByteSpace)
                         break;
-                    case HeaderState.Whitespace:
-                        for (; i < headerLineLength; i++)
-                        {
-                            var ch = data[i];
-                            var whitespace = ch == ByteTab || ch == ByteSpace || ch == ByteCR;
+                }
 
-                            if (!whitespace)
-                            {
-                                // Mark the first non whitespace char as the start of the
-                                // header value and change the state to expect to the header value
-                                valueStart = i;
+                // {something}:{value}\r\n
+                if (*(pHeader + length - 2) != ByteCR)
+                {
+                    // Make sure there's a CR
+                    RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
+                }
 
-                                goto case HeaderState.ExpectValue;
-                            }
-                            // If we see a CR then jump to the next state directly
-                            else if (ch == ByteCR)
-                            {
-                                goto case HeaderState.ExpectValue;
-                            }
-                        }
+                valueEnd = length - 2;
 
-                        RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
-
-                        break;
-                    case HeaderState.ExpectValue:
-                        for (; i < headerLineLength; i++)
-                        {
-                            var ch = data[i];
-                            var whitespace = ch == ByteTab || ch == ByteSpace;
-
-                            if (whitespace)
-                            {
-                                if (!previouslyWhitespace)
-                                {
-                                    // If we see a whitespace char then maybe it's end of the
-                                    // header value
-                                    valueEnd = i;
-                                }
-                            }
-                            else if (ch == ByteCR)
-                            {
-                                // If we see a CR and we haven't ever seen whitespace then
-                                // this is the end of the header value
-                                if (valueEnd == -1)
-                                {
-                                    valueEnd = i;
-                                }
-
-                                // We never saw a non whitespace character before the CR
-                                if (valueStart == -1)
-                                {
-                                    valueStart = valueEnd;
-                                }
-
-                                // Consume space
-                                i++;
-
-                                goto case HeaderState.ExpectNewLine;
-                            }
-                            else
-                            {
-                                // If we find a non whitespace char that isn't CR then reset the end index
-                                valueEnd = -1;
-                            }
-
-                            previouslyWhitespace = whitespace;
-                        }
-                        RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
-                        break;
-                    case HeaderState.ExpectNewLine:
-                        if (data[i] != ByteLF)
-                        {
-                            RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
-                        }
-                        goto case HeaderState.Complete;
-                    case HeaderState.Complete:
-                        done = true;
+                for (; valueEnd >= valueStart; valueEnd--)
+                {
+                    byte ch = *(pHeader + valueEnd);
+                    if (ch != ByteTab && ch != ByteSpace)
                         break;
                 }
             }
 
-            return done;
+            return true;
         }
 
         private static bool IsValidTokenChar(char c)
