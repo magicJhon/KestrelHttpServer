@@ -32,8 +32,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
             Pipe = PipelineFactory.Create();
         }
 
-        [Benchmark(Baseline = true, OperationsPerInvoke = RequestParsingData.InnerLoopCount)]
-        public void PlaintextTechEmpower()
+        [Params(typeof(KestrelHttpParser), typeof(PrototypeParser))]
+        public Type ParserType { get; set; }
+
+        [Benchmark(Baseline = true, OperationsPerInvoke = InnerLoopCount)]
+        public void ParsePlaintextTechEmpower()
         {
             for (var i = 0; i < RequestParsingData.InnerLoopCount; i++)
             {
