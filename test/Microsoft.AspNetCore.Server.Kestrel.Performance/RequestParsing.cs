@@ -12,7 +12,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
     [Config(typeof(CoreConfig))]
     public class RequestParsing
     {
-        [Params(typeof(Internal.Http.KestrelHttpParser))]
+        [Params(typeof(KestrelHttpParser), typeof(PrototypeParser))]
         public Type ParserType { get; set; }
 
         public IPipe Pipe { get; set; }
@@ -31,9 +31,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
             PipelineFactory = new PipeFactory();
             Pipe = PipelineFactory.Create();
         }
-
-        [Params(typeof(KestrelHttpParser), typeof(PrototypeParser))]
-        public Type ParserType { get; set; }
 
         [Benchmark(Baseline = true, OperationsPerInvoke = InnerLoopCount)]
         public void ParsePlaintextTechEmpower()
