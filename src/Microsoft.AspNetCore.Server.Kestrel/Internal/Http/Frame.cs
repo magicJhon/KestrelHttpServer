@@ -1169,13 +1169,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     _applicationException);
         }
 
-        private void RejectRequest(RequestRejectionReason reason, Span<byte> detail)
-        {
-            RequestRejectionUtilities.RejectRequest(
-                reason,
-                (Log.IsEnabled(LogLevel.Information) ? detail.GetAsciiStringEscaped(32) : string.Empty));
-        }
-
         public void SetBadRequestState(RequestRejectionReason reason)
         {
             SetBadRequestState(BadHttpRequestException.GetException(reason));
@@ -1252,7 +1245,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
             catch (InvalidOperationException)
             {
-                RejectRequest(RequestRejectionReason.InvalidCharactersInRequestPath, target);
+                RequestRejectionUtilities.RejectRequest(
+                    RequestRejectionReason.InvalidCharactersInRequestPath,
+                    detail: target,
+                    logDetail: Log.IsEnabled(LogLevel.Information),
+                    maxDetailChars: 32);
             }
 
             var normalizedTarget = PathNormalizer.RemoveDotSegments(requestUrlPath);
