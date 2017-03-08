@@ -227,7 +227,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                                 }
 
                                 // Headers don't end in CRLF line.
-                                RejectRequest(RequestRejectionReason.InvalidRequestHeadersNoCRLF);
+                                RequestRejectionUtilities.RejectRequest(RequestRejectionReason.InvalidRequestHeadersNoCRLF);
                             }
 
                             // We moved the reader so look ahead 2 bytes so reset both the reader
@@ -480,31 +480,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 c == '~';
         }
 
-        public static void RejectRequest(RequestRejectionReason reason)
-        {
-            throw BadHttpRequestException.GetException(reason);
-        }
-
-        private unsafe void RejectUnknownVersion(byte* data, int length, int versionStart)
-        {
-            throw GetRejectUnknownVersion(data, length, versionStart);
-        }
-
-        private unsafe void RejectRequestLine(byte* data, int length)
-        {
-            throw GetRejectRequestLineException(new Span<byte>(data, length));
-        }
-
         private void RejectRequestLine(Span<byte> span)
         {
-            throw GetRejectRequestLineException(span);
-        }
-
-        private BadHttpRequestException GetRejectRequestLineException(Span<byte> span)
-        {
-            const int MaxRequestLineError = 32;
-            return BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestLine,
-                Log.IsEnabled(LogLevel.Information) ? span.GetAsciiStringEscaped(MaxRequestLineError) : string.Empty);
+            RequestRejectionUtilities.RejectRequest(
+                RequestRejectionReason.InvalidRequestLine,
+                detail: span,
+                logDetail: Log.IsEnabled(LogLevel.Information),
+                maxDetailLength: 32);
         }
 
         private unsafe BadHttpRequestException GetRejectUnknownVersion(byte* data, int length, int versionStart)
@@ -533,19 +515,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         private unsafe void RejectRequestHeader(byte* headerLine, int length)
         {
-            RejectRequestHeader(new Span<byte>(headerLine, length));
-        }
-
-        private void RejectRequestHeader(Span<byte> span)
-        {
-            throw GetRejectRequestHeaderException(span);
-        }
-
-        private BadHttpRequestException GetRejectRequestHeaderException(Span<byte> span)
-        {
-            const int MaxRequestHeaderError = 128;
-            return BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestHeader,
-                Log.IsEnabled(LogLevel.Information) ? span.GetAsciiStringEscaped(MaxRequestHeaderError) : string.Empty);
+            RequestRejectionUtilities.RejectRequest(
+                RequestRejectionReason.InvalidRequestHeader,
+                detail: new Span<byte>(headerLine, length),
+                logDetail: Log.IsEnabled(LogLevel.Information),
+                maxDetailLength: 128);
         }
 
         public void Reset()

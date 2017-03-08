@@ -161,24 +161,23 @@ namespace Microsoft.AspNetCore.Testing
             "post= / HTTP/1.0\r\n",
         };
 
-        public static IEnumerable<string> RequestLineWithEncodedNullCharInTargetData => new[]
+        public static IEnumerable<string> TargetWithEncodedNullCharData => new[]
         {
-            "GET /%00 HTTP/1.1\r\n",
-            "GET /%00%00 HTTP/1.1\r\n",
-            "GET /%E8%00%84 HTTP/1.1\r\n",
-            "GET /%E8%85%00 HTTP/1.1\r\n",
-            "GET /%F3%00%82%86 HTTP/1.1\r\n",
-            "GET /%F3%85%00%82 HTTP/1.1\r\n",
-            "GET /%F3%85%82%00 HTTP/1.1\r\n",
-            "GET /%E8%01%00 HTTP/1.1\r\n",
+            "/%00",
+            "/%00%00",
+            "/%E8%00%84",
+            "/%E8%85%00",
+            "/%F3%00%82%86",
+            "/%F3%85%00%82",
+            "/%F3%85%82%00",
         };
 
-        public static IEnumerable<string> RequestLineWithNullCharInTargetData => new[]
+        public static IEnumerable<string> TargetWithNullCharData => new[]
         {
-            "GET \0 HTTP/1.1\r\n",
-            "GET /\0 HTTP/1.1\r\n",
-            "GET /\0\0 HTTP/1.1\r\n",
-            "GET /%C8\0 HTTP/1.1\r\n",
+            "\0",
+            "/\0",
+            "/\0\0",
+            "/%C8\0",
         };
 
         public static TheoryData<string> UnrecognizedHttpVersionData => new TheoryData<string>

@@ -1077,7 +1077,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             {
                 buffer = buffer.Slice(buffer.Start, _remainingRequestHeadersBytesAllowed);
 
-                // If we sliced it means the current buffer bigger than what we're 
+                // If we sliced it means the current buffer bigger than what we're
                 // allowed to look at
                 overLength = true;
             }
@@ -1221,35 +1221,49 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             // URIs are always encoded/escaped to ASCII https://tools.ietf.org/html/rfc3986#page-11
             // Multibyte Internationalized Resource Identifiers (IRIs) are first converted to utf8;
             // then encoded/escaped to ASCII  https://www.ietf.org/rfc/rfc3987.txt "Mapping of IRIs to URIs"
-            string requestUrlPath;
-            string rawTarget;
-            if (pathEncoded)
-            {
-                // Read raw target before mutating memory.
-                rawTarget = target.GetAsciiStringNonNullCharacters();
+            string requestUrlPath = null;
+            string rawTarget = null;
 
-                // URI was encoded, unescape and then parse as utf8
-                int pathLength = UrlEncoder.Decode(path, path);
-                requestUrlPath = GetUtf8String(path.Slice(0, pathLength));
-            }
-            else
+            try
             {
-                // URI wasn't encoded, parse as ASCII
-                requestUrlPath = path.GetAsciiStringNonNullCharacters();
-
-                if (query.Length == 0)
+                var needDecode = path.IndexOf(BytePercentage) >= 0;
+                if (needDecode)
                 {
-                    // No need to allocate an extra string if the path didn't need
-                    // decoding and there's no query string following it.
-                    rawTarget = requestUrlPath;
+                    // Read raw target before mutating memory.
+                    rawTarget = target.GetAsciiStringNonNullCharacters();
+
+                    // URI was encoded, unescape and then parse as utf8
+                    int pathLength = UrlEncoder.Decode(path, path);
+                    requestUrlPath = new Utf8String(path.Slice(0, pathLength)).ToString();
                 }
                 else
                 {
-                    rawTarget = target.GetAsciiStringNonNullCharacters();
+                    // URI wasn't encoded, parse as ASCII
+                    requestUrlPath = path.GetAsciiStringNonNullCharacters();
+
+                    if (query.Length == 0)
+                    {
+                        // No need to allocate an extra string if the path didn't need
+                        // decoding and there's no query string following it.
+                        rawTarget = requestUrlPath;
+                    }
+                    else
+                    {
+                        rawTarget = target.GetAsciiStringNonNullCharacters();
+                    }
                 }
+            }
+            catch (InvalidOperationException)
+            {
+                RequestRejectionUtilities.RejectRequest(
+                    RequestRejectionReason.InvalidCharactersInRequestPath,
+                    detail: target,
+                    logDetail: Log.IsEnabled(LogLevel.Information),
+                    maxDetailLength: 32);
             }
 
             var normalizedTarget = PathNormalizer.RemoveDotSegments(requestUrlPath);
+
             if (method != HttpMethod.Custom)
             {
                 Method = HttpUtilities.MethodToString(method) ?? string.Empty;

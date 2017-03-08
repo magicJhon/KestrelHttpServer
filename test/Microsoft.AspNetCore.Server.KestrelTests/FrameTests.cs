@@ -301,31 +301,31 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
         }
 
         [Theory]
-        [MemberData(nameof(RequestLineWithEncodedNullCharInTargetData))]
-        public async Task TakeStartLineThrowsOnEncodedNullCharInTarget(string requestLine)
+        [MemberData(nameof(TargetWithEncodedNullCharData))]
+        public async Task TakeStartLineThrowsOnEncodedNullCharInTarget(string target)
         {
-            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes(requestLine));
+            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes($"GET {target} HTTP/1.1\r\n"));
             var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
 
-            var exception = Assert.Throws<InvalidOperationException>(() =>
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
                 _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
             _input.Reader.Advance(_consumed, _examined);
 
-            Assert.Equal("The path contains null characters.", exception.Message);
+            Assert.Equal($"Invalid characters in request target: '{target}'", exception.Message);
         }
 
         [Theory]
-        [MemberData(nameof(RequestLineWithNullCharInTargetData))]
-        public async Task TakeStartLineThrowsOnNullCharInTarget(string requestLine)
+        [MemberData(nameof(TargetWithNullCharData))]
+        public async Task TakeStartLineThrowsOnNullCharInTarget(string target)
         {
-            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes(requestLine));
+            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes($"GET {target} HTTP/1.1\r\n"));
             var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
 
-            var exception = Assert.Throws<InvalidOperationException>(() =>
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
                 _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
             _input.Reader.Advance(_consumed, _examined);
 
-            Assert.Equal(new InvalidOperationException().Message, exception.Message);
+            Assert.Equal($"Invalid characters in request target: '{target.Replace("\0", "\\x00")}'", exception.Message);
         }
 
         [Fact]
@@ -501,30 +501,30 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
 
         public static IEnumerable<object> ValidRequestLineData => HttpParsingData.RequestLineValidData;
 
-        public static TheoryData<string> RequestLineWithEncodedNullCharInTargetData
+        public static TheoryData<string> TargetWithEncodedNullCharData
         {
             get
             {
                 var data = new TheoryData<string>();
 
-                foreach (var requestLine in HttpParsingData.RequestLineWithEncodedNullCharInTargetData)
+                foreach (var target in HttpParsingData.TargetWithEncodedNullCharData)
                 {
-                    data.Add(requestLine);
+                    data.Add(target);
                 }
 
                 return data;
             }
         }
 
-        public static TheoryData<string> RequestLineWithNullCharInTargetData
+        public static TheoryData<string> TargetWithNullCharData
         {
             get
             {
                 var data = new TheoryData<string>();
 
-                foreach (var requestLine in HttpParsingData.RequestLineWithNullCharInTargetData)
+                foreach (var target in HttpParsingData.TargetWithNullCharData)
                 {
-                    data.Add(requestLine);
+                    data.Add(target);
                 }
 
                 return data;

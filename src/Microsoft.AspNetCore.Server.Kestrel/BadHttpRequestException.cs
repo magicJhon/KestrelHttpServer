@@ -76,6 +76,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel
                 case RequestRejectionReason.InvalidRequestLine:
                     ex = new BadHttpRequestException($"Invalid request line: '{value}'", StatusCodes.Status400BadRequest);
                     break;
+                case RequestRejectionReason.InvalidCharactersInRequestPath:
+                    ex = new BadHttpRequestException($"Invalid characters in request target: '{value}'", StatusCodes.Status400BadRequest);
+                    break;
                 case RequestRejectionReason.InvalidRequestHeader:
                     ex = new BadHttpRequestException($"Invalid request header: '{value}'", StatusCodes.Status400BadRequest);
                     break;

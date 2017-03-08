@@ -16,6 +16,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         BadChunkSuffix,
         BadChunkSizeData,
         ChunkedRequestIncomplete,
+        InvalidCharactersInRequestPath,
         InvalidCharactersInHeaderName,
         RequestLineTooLong,
         HeadersExceedMaxTotalSize,
