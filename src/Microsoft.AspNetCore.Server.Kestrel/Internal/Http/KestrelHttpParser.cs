@@ -77,176 +77,159 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             Span<byte> customMethod;
             var i = 0;
             var length = span.Length;
-            var done = false;
 
             fixed (byte* data = &span.DangerousGetPinnableReference())
             {
-                switch (StartLineState.KnownMethod)
+                // Method
+                if (span.GetKnownMethod(out method, out var methodLength))
                 {
-                    case StartLineState.KnownMethod:
-                        if (span.GetKnownMethod(out method, out var methodLength))
+                    // Update the index, current char, state and jump directly
+                    // to the next state
+                    i += methodLength + 1;
+                }
+                else
+                {
+                    for (; i < length; i++)
+                    {
+                        var ch = data[i];
+
+                        if (ch == ByteSpace)
                         {
-                            // Update the index, current char, state and jump directly
-                            // to the next state
-                            i += methodLength + 1;
+                            customMethod = span.Slice(0, i);
 
-                            goto case StartLineState.Path;
-                        }
-                        goto case StartLineState.UnknownMethod;
-
-                    case StartLineState.UnknownMethod:
-                        for (; i < length; i++)
-                        {
-                            var ch = data[i];
-
-                            if (ch == ByteSpace)
-                            {
-                                customMethod = span.Slice(0, i);
-
-                                if (customMethod.Length == 0)
-                                {
-                                    RejectRequestLine(span);
-                                }
-                                // Consume space
-                                i++;
-
-                                goto case StartLineState.Path;
-                            }
-
-                            if (!IsValidTokenChar((char)ch))
+                            if (customMethod.Length == 0)
                             {
                                 RejectRequestLine(span);
                             }
+
+                            // Consume space
+                            i++;
+                            break;
                         }
-
-                        break;
-                    case StartLineState.Path:
-                        for (; i < length; i++)
-                        {
-                            var ch = data[i];
-                            if (ch == ByteSpace)
-                            {
-                                pathEnd = i;
-
-                                if (pathStart == -1)
-                                {
-                                    // Empty path is illegal
-                                    RejectRequestLine(span);
-                                }
-
-                                // No query string found
-                                queryStart = queryEnd = i;
-
-                                // Consume space
-                                i++;
-
-                                goto case StartLineState.KnownVersion;
-                            }
-                            else if (ch == ByteQuestionMark)
-                            {
-                                pathEnd = i;
-
-                                if (pathStart == -1)
-                                {
-                                    // Empty path is illegal
-                                    RejectRequestLine(span);
-                                }
-
-                                queryStart = i;
-                                goto case StartLineState.QueryString;
-                            }
-                            else if (ch == BytePercentage)
-                            {
-                                if (pathStart == -1)
-                                {
-                                    RejectRequestLine(span);
-                                }
-                            }
-
-                            if (pathStart == -1)
-                            {
-                                pathStart = i;
-                            }
-                        }
-                        break;
-                    case StartLineState.QueryString:
-                        for (; i < length; i++)
-                        {
-                            var ch = data[i];
-                            if (ch == ByteSpace)
-                            {
-                                queryEnd = i;
-
-                                // Consume space
-                                i++;
-
-                                goto case StartLineState.KnownVersion;
-                            }
-                        }
-                        break;
-                    case StartLineState.KnownVersion:
-                        // REVIEW: We don't *need* to slice here but it makes the API
-                        // nicer, slicing should be free :)
-                        if (span.Slice(i).GetKnownVersion(out httpVersion, out var versionLenght))
-                        {
-                            // Update the index, current char, state and jump directly
-                            // to the next state
-                            i += versionLenght + 1;
-                            goto case StartLineState.NewLine;
-                        }
-
-                        versionStart = i;
-
-                        goto case StartLineState.UnknownVersion;
-
-                    case StartLineState.UnknownVersion:
-                        for (; i < length; i++)
-                        {
-                            var ch = data[i];
-                            if (ch == ByteCR)
-                            {
-                                var versionSpan = span.Slice(versionStart, i - versionStart);
-
-                                if (versionSpan.Length == 0)
-                                {
-                                    RejectRequestLine(span);
-                                }
-                                else
-                                {
-                                    RejectRequest(RequestRejectionReason.UnrecognizedHTTPVersion,
-                                        versionSpan.GetAsciiStringEscaped(32));
-                                }
-                            }
-                        }
-                        break;
-                    case StartLineState.NewLine:
-                        if (data[i] != ByteLF)
+                        else if (!IsValidTokenChar((char)ch))
                         {
                             RejectRequestLine(span);
                         }
-                        i++;
-
-                        goto case StartLineState.Complete;
-                    case StartLineState.Complete:
-                        done = true;
-                        break;
+                    }
                 }
+
+                // Target = Path and Query
+
+                for (; i < length; i++)
+                {
+                    var ch = data[i];
+                    if (ch == ByteSpace)
+                    {
+                        pathEnd = i;
+
+                        if (pathStart == -1)
+                        {
+                            // Empty path is illegal
+                            RejectRequestLine(span);
+                        }
+
+                        // No query string found
+                        queryStart = queryEnd = i;
+
+                        // Consume space
+                        i++;
+                        break;
+                    }
+                    else if (ch == ByteQuestionMark)
+                    {
+                        pathEnd = i;
+
+                        if (pathStart == -1)
+                        {
+                            // Empty path is illegal
+                            RejectRequestLine(span);
+                        }
+
+                        queryStart = i;
+                        break;
+                    }
+                    else if (ch == BytePercentage)
+                    {
+                        if (pathStart == -1)
+                        {
+                            RejectRequestLine(span);
+                        }
+                    }
+
+                    if (pathStart == -1)
+                    {
+                        pathStart = i;
+                    }
+                }
+
+                // Query string
+                if (queryEnd == -1)
+                {
+                    // We have a query string
+                    for (; i < length; i++)
+                    {
+                        var ch = data[i];
+                        if (ch == ByteSpace)
+                        {
+                            queryEnd = i;
+
+                            // Consume space
+                            i++;
+
+                            break;
+                        }
+                    }
+                }
+
+                // Version
+                if (span.Slice(i).GetKnownVersion(out httpVersion, out var versionLength))
+                {
+                    // Update the index, current char, state and jump directly
+                    // to the next state
+                    i += versionLength + 1;
+                }
+                else
+                {
+                    versionStart = i;
+
+                    for (; i < length; i++)
+                    {
+                        var ch = data[i];
+                        if (ch == ByteCR)
+                        {
+                            var versionSpan = span.Slice(versionStart, i - versionStart);
+
+                            if (versionSpan.Length == 0)
+                            {
+                                RejectRequestLine(span);
+                            }
+                            else
+                            {
+                                RejectRequest(RequestRejectionReason.UnrecognizedHTTPVersion,
+                                    versionSpan.GetAsciiStringEscaped(32));
+                            }
+                        }
+                    }
+                }
+
+                // Expect lf
+                if (data[i] != ByteLF)
+                {
+                    RejectRequestLine(span);
+                }
+
+                i++;
+
+                var pathBuffer = new Span<byte>(data + pathStart, pathEnd - pathStart);
+                var targetBuffer = new Span<byte>(data + pathStart, queryEnd - pathStart);
+                var query = new Span<byte>(data + queryStart, queryEnd - queryStart);
+
+                handler.OnStartLine(method, httpVersion, targetBuffer, pathBuffer, query, customMethod);
+
+                consumed = end;
+                examined = consumed;
+                return true;
             }
-
-            if (!done)
-            {
-                RejectRequestLine(span);
-            }
-
-            var pathBuffer = span.Slice(pathStart, pathEnd - pathStart);
-            var targetBuffer = span.Slice(pathStart, queryEnd - pathStart);
-            var query = span.Slice(queryStart, queryEnd - queryStart);
-
-            handler.OnStartLine(method, httpVersion, targetBuffer, pathBuffer, query, customMethod);
-
-            consumed = end;
-            examined = consumed;
-            return true;
         }
 
         public unsafe bool ParseHeaders<T>(T handler, ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined, out int consumedBytes) where T : IHttpHeadersHandler
@@ -318,7 +301,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                                 // Headers don't end in CRLF line.
                                 RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
                             }
-                            else if(ch1 == ByteSpace || ch1 == ByteTab)
+                            else if (ch1 == ByteSpace || ch1 == ByteTab)
                             {
                                 RejectRequest(RequestRejectionReason.WhitespaceIsNotAllowedInHeaderName);
                             }
@@ -437,7 +420,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             // Skip colon from value start
             var valueStart = nameEnd + 1;
             // Ignore start whitespace
-            for(; valueStart < valueEnd; valueStart++)
+            for (; valueStart < valueEnd; valueStart++)
             {
                 var ch = headerLine[valueStart];
                 if (ch != ByteTab && ch != ByteSpace && ch != ByteCR)
@@ -506,7 +489,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
             }
             return false;
-        found:
+            found:
             return true;
         }
 
