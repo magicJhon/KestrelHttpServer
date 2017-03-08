@@ -31,6 +31,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             throw GetException(reason, detail, logDetail, maxDetailChars);
         }
 
+        public static unsafe void RejectRequest(RequestRejectionReason reason, byte* detail, int detailLength, bool logDetail, int maxDetailChars)
+        {
+            throw GetException(reason, new Span<byte>(detail, detailLength), logDetail, maxDetailChars);
+        }
+
         private static BadHttpRequestException GetException(RequestRejectionReason reason, Span<byte> detail, bool logDetail, int maxDetailChars)
         {
             return BadHttpRequestException.GetException(reason, logDetail ? detail.GetAsciiStringEscaped(maxDetailChars) : string.Empty);

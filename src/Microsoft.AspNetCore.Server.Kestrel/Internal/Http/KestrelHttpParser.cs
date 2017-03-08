@@ -517,7 +517,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         {
             RequestRejectionUtilities.RejectRequest(
                 RequestRejectionReason.InvalidRequestHeader,
-                detail: new Span<byte>(headerLine, length),
+                detail: headerLine,
+                detailLength: length,
                 logDetail: Log.IsEnabled(LogLevel.Information),
                 maxDetailChars: 128);
         }
