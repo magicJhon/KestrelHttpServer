@@ -323,6 +323,32 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
         }
 
+        [Fact]
+        public void ExceptionDetailNotIncludedWhenLogLevelInformationNotEnabled()
+        {
+            var mockTrace = new Mock<IKestrelTrace>();
+            mockTrace
+                .Setup(trace => trace.IsEnabled(LogLevel.Information))
+                .Returns(false);
+
+            var parser = CreateParser(mockTrace.Object);
+            var buffer = ReadableBuffer.Create(Encoding.ASCII.GetBytes("GET % HTTP/1.1\r\n"));
+
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
+                parser.ParseRequestLine(Mock.Of<IHttpRequestLineHandler>(), buffer, out var consumed, out var examined));
+
+            Assert.Equal("Invalid request line: ''", exception.Message);
+            Assert.Equal(StatusCodes.Status400BadRequest, (exception as BadHttpRequestException).StatusCode);
+
+            buffer = ReadableBuffer.Create(Encoding.ASCII.GetBytes("Header: value\n\r\n"));
+
+            exception = Assert.Throws<BadHttpRequestException>(() =>
+                parser.ParseHeaders(Mock.Of<IHttpHeadersHandler>(), buffer, out var consumed, out var examined, out var consumedBytes));
+
+            Assert.Equal("Invalid request header: ''", exception.Message);
+            Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+        }
+
         private void VerifyHeader(
             string headerName,
             string rawHeaderValue,

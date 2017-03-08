@@ -13,14 +13,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             throw BadHttpRequestException.GetException(reason);
         }
 
-        public static void RejectRequest(RequestRejectionReason reason, string value)
+        public static void RejectRequest(RequestRejectionReason reason, string detail)
         {
-            throw BadHttpRequestException.GetException(reason, value);
-        }
-
-        public static void RejectRequest(RequestRejectionReason reason, Span<byte> detail, bool logDetail, int maxDetailLength)
-        {
-            throw BadHttpRequestException.GetException(reason, logDetail ? detail.GetAsciiStringEscaped(maxDetailLength) : string.Empty);
+            throw BadHttpRequestException.GetException(reason, detail);
         }
     }
 }

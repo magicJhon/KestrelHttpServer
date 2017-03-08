@@ -15,8 +15,10 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel;
 using Microsoft.AspNetCore.Server.Kestrel.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -497,6 +499,36 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
 
             await _frame.ProduceEndAsync();
             Assert.NotSame(original, _frame.RequestAborted.WaitHandle);
+        }
+
+        [Fact]
+        public async Task ExceptionDetailNotIncludedWhenLogLevelInformationNotEnabled()
+        {
+            var previousLog = _serviceContext.Log;
+
+            try
+            {
+                var mockTrace = new Mock<IKestrelTrace>();
+                mockTrace
+                    .Setup(trace => trace.IsEnabled(LogLevel.Information))
+                    .Returns(false);
+
+                _serviceContext.Log = mockTrace.Object;
+
+                await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes($"GET /%00 HTTP/1.1\r\n"));
+                var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
+
+                var exception = Assert.Throws<BadHttpRequestException>(() =>
+                    _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
+                _input.Reader.Advance(_consumed, _examined);
+
+                Assert.Equal("Invalid characters in request target: ''", exception.Message);
+                Assert.Equal(StatusCodes.Status400BadRequest, exception.StatusCode);
+            }
+            finally
+            {
+                _serviceContext.Log = previousLog;
+            }
         }
 
         public static IEnumerable<object> ValidRequestLineData => HttpParsingData.RequestLineValidData;

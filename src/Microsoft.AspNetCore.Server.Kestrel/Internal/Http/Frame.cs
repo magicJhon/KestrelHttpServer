@@ -1031,7 +1031,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             var result = _parser.ParseRequestLine(this, buffer, out consumed, out examined);
             if (!result && overLength)
             {
-                RejectRequest(RequestRejectionReason.RequestLineTooLong);
+                RequestRejectionUtilities.RejectRequest(RequestRejectionReason.RequestLineTooLong);
             }
 
             return result;
@@ -1087,7 +1087,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
             if (!result && overLength)
             {
-                RejectRequest(RequestRejectionReason.HeadersExceedMaxTotalSize);
+                RequestRejectionUtilities.RejectRequest(RequestRejectionReason.HeadersExceedMaxTotalSize);
             }
             if (result)
             {
@@ -1169,14 +1169,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     _applicationException);
         }
 
-        public void RejectRequest(RequestRejectionReason reason)
+        private void RejectRequest(RequestRejectionReason reason, Span<byte> detail)
         {
-            throw BadHttpRequestException.GetException(reason);
-        }
-
-        public void RejectRequest(RequestRejectionReason reason, string value)
-        {
-            throw BadHttpRequestException.GetException(reason, value);
+            RequestRejectionUtilities.RejectRequest(
+                reason,
+                (Log.IsEnabled(LogLevel.Information) ? detail.GetAsciiStringEscaped(32) : string.Empty));
         }
 
         public void SetBadRequestState(RequestRejectionReason reason)
@@ -1255,11 +1252,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
             catch (InvalidOperationException)
             {
-                RequestRejectionUtilities.RejectRequest(
-                    RequestRejectionReason.InvalidCharactersInRequestPath,
-                    detail: target,
-                    logDetail: Log.IsEnabled(LogLevel.Information),
-                    maxDetailLength: 32);
+                RejectRequest(RequestRejectionReason.InvalidCharactersInRequestPath, target);
             }
 
             var normalizedTarget = PathNormalizer.RemoveDotSegments(requestUrlPath);
@@ -1313,7 +1306,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             _requestHeadersParsed++;
             if (_requestHeadersParsed > ServerOptions.Limits.MaxRequestHeaderCount)
             {
-                RejectRequest(RequestRejectionReason.TooManyHeaders);
+                RequestRejectionUtilities.RejectRequest(RequestRejectionReason.TooManyHeaders);
             }
             var valueString = value.GetAsciiStringNonNullCharacters();
 

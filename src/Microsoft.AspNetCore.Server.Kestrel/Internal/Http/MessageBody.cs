@@ -262,7 +262,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 // status code and then close the connection.
                 if (transferCoding != TransferCoding.Chunked)
                 {
-                    context.RejectRequest(RequestRejectionReason.FinalTransferCodingNotChunked, transferEncoding.ToString());
+                    RequestRejectionUtilities.RejectRequest(RequestRejectionReason.FinalTransferCodingNotChunked, transferEncoding.ToString());
                 }
 
                 return new ForChunkedEncoding(keepAlive, headers, context);
@@ -287,7 +287,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 if (HttpMethods.IsPost(context.Method) || HttpMethods.IsPut(context.Method))
                 {
                     var requestRejectionReason = httpVersion == HttpVersion.Http11 ? RequestRejectionReason.LengthRequired : RequestRejectionReason.LengthRequiredHttp10;
-                    context.RejectRequest(requestRejectionReason, context.Method);
+                    RequestRejectionUtilities.RejectRequest(requestRejectionReason, context.Method);
                 }
             }
 
@@ -360,7 +360,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                     if (task.Result.Count == 0)
                     {
-                        _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
+                        RequestRejectionUtilities.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
                     }
 
                     if (task.Result.Count < _inputLength)
@@ -386,7 +386,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                 if (segment.Count == 0)
                 {
-                    _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
+                    RequestRejectionUtilities.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
                 }
 
                 if (segment.Count <= _inputLength)
@@ -463,7 +463,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         }
                         else if (result.IsCompleted)
                         {
-                            _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                            RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                         }
 
                     }
@@ -490,7 +490,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         }
                         else if (result.IsCompleted)
                         {
-                            _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                            RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                         }
 
                     }
@@ -519,7 +519,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         }
                         else if (result.IsCompleted)
                         {
-                            _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                            RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                         }
                     }
 
@@ -545,7 +545,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         }
                         else if (result.IsCompleted)
                         {
-                            _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                            RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                         }
                     }
                 }
@@ -573,7 +573,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     }
                     else if (result.IsCompleted)
                     {
-                        _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                        RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                     }
 
                 }
@@ -587,7 +587,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                         if (buffer.IsEmpty && result.IsCompleted)
                         {
-                            _context.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
+                            RequestRejectionUtilities.RejectRequest(RequestRejectionReason.ChunkedRequestIncomplete);
                         }
 
                         var consumed = default(ReadCursor);
@@ -756,7 +756,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
                 else
                 {
-                    _context.RejectRequest(RequestRejectionReason.BadChunkSuffix);
+                    RequestRejectionUtilities.RejectRequest(RequestRejectionReason.BadChunkSuffix);
                 }
             }
 
@@ -804,7 +804,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     }
                 }
 
-                _context.RejectRequest(RequestRejectionReason.BadChunkSizeData);
+                RequestRejectionUtilities.RejectRequest(RequestRejectionReason.BadChunkSizeData);
                 return -1; // can't happen, but compiler complains
             }
 
