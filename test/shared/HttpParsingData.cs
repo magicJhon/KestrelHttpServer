@@ -91,74 +91,99 @@ namespace Microsoft.AspNetCore.Testing
             "GET / HTTP/1.1\r",
         };
 
-        public static IEnumerable<string> RequestLineInvalidData => new[]
+        public static IEnumerable<string> RequestLineInvalidData
         {
-            "G\r\n",
-            "GE\r\n",
-            "GET\r\n",
-            "GET \r\n",
-            "GET /\r\n",
-            "GET / \r\n",
-            "GET/HTTP/1.1\r\n",
-            "GET /HTTP/1.1\r\n",
-            " \r\n",
-            "  \r\n",
-            "/ HTTP/1.1\r\n",
-            " / HTTP/1.1\r\n",
-            "/ \r\n",
-            "GET  \r\n",
-            "GET  HTTP/1.0\r\n",
-            "GET  HTTP/1.1\r\n",
-            "GET / \n",
-            "GET / HTTP/1.0\n",
-            "GET / HTTP/1.1\n",
-            "GET / HTTP/1.0\rA\n",
-            "GET / HTTP/1.1\ra\n",
-            "GET? / HTTP/1.1\r\n",
-            "GET ? HTTP/1.1\r\n",
-            "GET /a?b=cHTTP/1.1\r\n",
-            "GET /a%20bHTTP/1.1\r\n",
-            "GET /a%20b?c=dHTTP/1.1\r\n",
-            "GET %2F HTTP/1.1\r\n",
-            "GET %00 HTTP/1.1\r\n",
-            "CUSTOM \r\n",
-            "CUSTOM /\r\n",
-            "CUSTOM / \r\n",
-            "CUSTOM /HTTP/1.1\r\n",
-            "CUSTOM  \r\n",
-            "CUSTOM  HTTP/1.0\r\n",
-            "CUSTOM  HTTP/1.1\r\n",
-            "CUSTOM / \n",
-            "CUSTOM / HTTP/1.0\n",
-            "CUSTOM / HTTP/1.1\n",
-            "CUSTOM / HTTP/1.0\rA\n",
-            "CUSTOM / HTTP/1.1\ra\n",
-            "CUSTOM ? HTTP/1.1\r\n",
-            "CUSTOM /a?b=cHTTP/1.1\r\n",
-            "CUSTOM /a%20bHTTP/1.1\r\n",
-            "CUSTOM /a%20b?c=dHTTP/1.1\r\n",
-            "CUSTOM %2F HTTP/1.1\r\n",
-            "CUSTOM %00 HTTP/1.1\r\n",
+            get
+            {
+                return new[]
+                {
+                    "G\r\n",
+                    "GE\r\n",
+                    "GET\r\n",
+                    "GET \r\n",
+                    "GET /\r\n",
+                    "GET / \r\n",
+                    "GET/HTTP/1.1\r\n",
+                    "GET /HTTP/1.1\r\n",
+                    " \r\n",
+                    "  \r\n",
+                    "/ HTTP/1.1\r\n",
+                    " / HTTP/1.1\r\n",
+                    "/ \r\n",
+                    "GET  \r\n",
+                    "GET  HTTP/1.0\r\n",
+                    "GET  HTTP/1.1\r\n",
+                    "GET / \n",
+                    "GET / HTTP/1.0\n",
+                    "GET / HTTP/1.1\n",
+                    "GET / HTTP/1.0\rA\n",
+                    "GET / HTTP/1.1\ra\n",
+                    "GET? / HTTP/1.1\r\n",
+                    "GET ? HTTP/1.1\r\n",
+                    "GET /a?b=cHTTP/1.1\r\n",
+                    "GET /a%20bHTTP/1.1\r\n",
+                    "GET /a%20b?c=dHTTP/1.1\r\n",
+                    "GET %2F HTTP/1.1\r\n",
+                    "GET %00 HTTP/1.1\r\n",
+                    "CUSTOM \r\n",
+                    "CUSTOM /\r\n",
+                    "CUSTOM / \r\n",
+                    "CUSTOM /HTTP/1.1\r\n",
+                    "CUSTOM  \r\n",
+                    "CUSTOM  HTTP/1.0\r\n",
+                    "CUSTOM  HTTP/1.1\r\n",
+                    "CUSTOM / \n",
+                    "CUSTOM / HTTP/1.0\n",
+                    "CUSTOM / HTTP/1.1\n",
+                    "CUSTOM / HTTP/1.0\rA\n",
+                    "CUSTOM / HTTP/1.1\ra\n",
+                    "CUSTOM ? HTTP/1.1\r\n",
+                    "CUSTOM /a?b=cHTTP/1.1\r\n",
+                    "CUSTOM /a%20bHTTP/1.1\r\n",
+                    "CUSTOM /a%20b?c=dHTTP/1.1\r\n",
+                    "CUSTOM %2F HTTP/1.1\r\n",
+                    "CUSTOM %00 HTTP/1.1\r\n",
+                }.Concat(MethodWithNonTokenCharData.Select(method => $"{method} / HTTP/1.0\r\n"));
+            }
+        }
+
+        // Bad HTTP Methods (invalid according to RFC)
+        public static IEnumerable<string> MethodWithNonTokenCharData
+        {
+            get
+            {
+                return new[]
+                {
+                    "(",
+                    ")",
+                    "<",
+                    ">",
+                    "@",
+                    ",",
+                    ";",
+                    ":",
+                    "\\",
+                    "\"",
+                    "/",
+                    "[",
+                    "]",
+                    "?",
+                    "=",
+                    "{",
+                    "}",
+                    "get@",
+                    "post=",
+                }.Concat(MethodWithNullCharData);
+            }
+        }
+
+        public static IEnumerable<string> MethodWithNullCharData => new[]
+        {
             // Bad HTTP Methods (invalid according to RFC)
-            "( / HTTP/1.0\r\n",
-            ") / HTTP/1.0\r\n",
-            "< / HTTP/1.0\r\n",
-            "> / HTTP/1.0\r\n",
-            "@ / HTTP/1.0\r\n",
-            ", / HTTP/1.0\r\n",
-            "; / HTTP/1.0\r\n",
-            ": / HTTP/1.0\r\n",
-            "\\ / HTTP/1.0\r\n",
-            "\" / HTTP/1.0\r\n",
-            "/ / HTTP/1.0\r\n",
-            "[ / HTTP/1.0\r\n",
-            "] / HTTP/1.0\r\n",
-            "? / HTTP/1.0\r\n",
-            "= / HTTP/1.0\r\n",
-            "{ / HTTP/1.0\r\n",
-            "} / HTTP/1.0\r\n",
-            "get@ / HTTP/1.0\r\n",
-            "post= / HTTP/1.0\r\n",
+            "\0",
+            "\0GET",
+            "G\0T",
+            "GET\0",
         };
 
         public static IEnumerable<string> TargetWithEncodedNullCharData => new[]
@@ -172,14 +197,24 @@ namespace Microsoft.AspNetCore.Testing
             "/%F3%85%82%00",
         };
 
-        public static IEnumerable<string> TargetWithNullCharData => new[]
+        public static IEnumerable<string> TargetWithNullCharData
         {
-            "\0",
-            "/\0",
-            "/\0\0",
-            "/%C8\0",
+            get
+            {
+                return new[]
+                {
+                "\0",
+                "/\0",
+                "/\0\0",
+                "/%C8\0",
+                }.Concat(QueryStringWithNullCharData);
+            }
+        }
+
+        public static IEnumerable<string> QueryStringWithNullCharData => new[]
+        {
             "/?\0=a",
-            "/?a=\0"
+            "/?a=\0",
         };
 
         public static TheoryData<string> UnrecognizedHttpVersionData => new TheoryData<string>
