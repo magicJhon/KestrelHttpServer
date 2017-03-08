@@ -485,8 +485,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             RequestRejectionUtilities.RejectRequest(
                 RequestRejectionReason.InvalidRequestLine,
                 detail: span,
-                logDetail: Log.IsEnabled(LogLevel.Information),
-                maxDetailChars: 32);
+                logDetail: Log.IsEnabled(LogLevel.Information));
         }
 
         private unsafe BadHttpRequestException GetRejectUnknownVersion(byte* data, int length, int versionStart)
@@ -519,8 +518,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 RequestRejectionReason.InvalidRequestHeader,
                 detail: headerLine,
                 detailLength: length,
-                logDetail: Log.IsEnabled(LogLevel.Information),
-                maxDetailChars: 128);
+                logDetail: Log.IsEnabled(LogLevel.Information));
         }
 
         public void Reset()

@@ -152,7 +152,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             var exception = Assert.Throws<BadHttpRequestException>(() =>
                 parser.ParseRequestLine(Mock.Of<IHttpRequestLineHandler>(), buffer, out var consumed, out var examined));
 
-            Assert.Equal($"Unrecognized HTTP version: {httpVersion}", exception.Message);
+            Assert.Equal($"Unrecognized HTTP version: '{httpVersion}'", exception.Message);
             Assert.Equal(StatusCodes.Status505HttpVersionNotsupported, (exception as BadHttpRequestException).StatusCode);
         }
 
@@ -353,6 +353,8 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 .Returns(false);
 
             var parser = CreateParser(mockTrace.Object);
+
+            // Invalid request line
             var buffer = ReadableBuffer.Create(Encoding.ASCII.GetBytes("GET % HTTP/1.1\r\n"));
 
             var exception = Assert.Throws<BadHttpRequestException>(() =>
@@ -361,6 +363,16 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             Assert.Equal("Invalid request line: ''", exception.Message);
             Assert.Equal(StatusCodes.Status400BadRequest, (exception as BadHttpRequestException).StatusCode);
 
+            // Unrecognized HTTP version
+            buffer = ReadableBuffer.Create(Encoding.ASCII.GetBytes("GET / HTTP/1.2\r\n"));
+
+            exception = Assert.Throws<BadHttpRequestException>(() =>
+                parser.ParseRequestLine(Mock.Of<IHttpRequestLineHandler>(), buffer, out var consumed, out var examined));
+
+            Assert.Equal("Unrecognized HTTP version: ''", exception.Message);
+            Assert.Equal(StatusCodes.Status505HttpVersionNotsupported, (exception as BadHttpRequestException).StatusCode);
+
+            // Invalid request header
             buffer = ReadableBuffer.Create(Encoding.ASCII.GetBytes("Header: value\n\r\n"));
 
             exception = Assert.Throws<BadHttpRequestException>(() =>

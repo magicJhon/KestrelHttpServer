@@ -31,7 +31,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
             return TestBadRequest(
                 $"GET / {httpVersion}\r\n",
                 "505 HTTP Version Not Supported",
-                $"Unrecognized HTTP version: {httpVersion}");
+                $"Unrecognized HTTP version: '{httpVersion}'");
         }
 
         [Theory]

@@ -86,7 +86,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel
                     ex = new BadHttpRequestException($"Invalid content length: {detail}", StatusCodes.Status400BadRequest);
                     break;
                 case RequestRejectionReason.UnrecognizedHTTPVersion:
-                    ex = new BadHttpRequestException($"Unrecognized HTTP version: {detail}", StatusCodes.Status505HttpVersionNotsupported);
+                    ex = new BadHttpRequestException($"Unrecognized HTTP version: '{detail}'", StatusCodes.Status505HttpVersionNotsupported);
                     break;
                 case RequestRejectionReason.FinalTransferCodingNotChunked:
                     ex = new BadHttpRequestException($"Final transfer coding is not \"chunked\": \"{detail}\"", StatusCodes.Status400BadRequest);

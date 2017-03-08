@@ -8,6 +8,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 {
     public static class RequestRejectionUtilities
     {
+        private const int _maxExceptionDetailSize = 128;
+
         public static void RejectRequest(RequestRejectionReason reason)
         {
             throw BadHttpRequestException.GetException(reason);
@@ -26,19 +28,19 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         // - Decides never to inline it
         // - Moves call out of line to end of function as it is an exception
         // - Notes the function will never return so skips emitting post function prep(popping the stack back etc)
-        public static void RejectRequest(RequestRejectionReason reason, Span<byte> detail, bool logDetail, int maxDetailChars)
+        public static void RejectRequest(RequestRejectionReason reason, Span<byte> detail, bool logDetail)
         {
-            throw GetException(reason, detail, logDetail, maxDetailChars);
+            throw GetException(reason, detail, logDetail);
         }
 
-        public static unsafe void RejectRequest(RequestRejectionReason reason, byte* detail, int detailLength, bool logDetail, int maxDetailChars)
+        public static unsafe void RejectRequest(RequestRejectionReason reason, byte* detail, int detailLength, bool logDetail)
         {
-            throw GetException(reason, new Span<byte>(detail, detailLength), logDetail, maxDetailChars);
+            throw GetException(reason, new Span<byte>(detail, detailLength), logDetail);
         }
 
-        private static BadHttpRequestException GetException(RequestRejectionReason reason, Span<byte> detail, bool logDetail, int maxDetailChars)
+        private static BadHttpRequestException GetException(RequestRejectionReason reason, Span<byte> detail, bool logDetail)
         {
-            return BadHttpRequestException.GetException(reason, logDetail ? detail.GetAsciiStringEscaped(maxDetailChars) : string.Empty);
+            return BadHttpRequestException.GetException(reason, logDetail ? detail.GetAsciiStringEscaped(_maxExceptionDetailSize) : string.Empty);
         }
     }
 }
