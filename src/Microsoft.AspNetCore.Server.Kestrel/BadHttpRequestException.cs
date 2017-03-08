@@ -1,14 +1,20 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
+using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.AspNetCore.Server.Kestrel
 {
     public sealed class BadHttpRequestException : IOException
     {
+        // used in rare cases
+        private HttpMethod? _requiredMethod;
+
         private BadHttpRequestException(string message, int statusCode)
             : base(message)
         {
@@ -16,6 +22,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel
         }
 
         internal int StatusCode { get; }
+
+        internal void SetAdditionalHeaders(FrameResponseHeaders headers)
+        {
+            if (_requiredMethod.HasValue)
+            {
+                headers.HeaderAllow = HttpUtilities.MethodToString(_requiredMethod.Value);
+            }
+        }
 
         internal static BadHttpRequestException GetException(RequestRejectionReason reason)
         {
@@ -60,6 +74,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel
                     break;
                 case RequestRejectionReason.RequestTimeout:
                     ex = new BadHttpRequestException("Request timed out.", StatusCodes.Status408RequestTimeout);
+                    break;
+                case RequestRejectionReason.OptionsMethodRequired:
+                    ex = new BadHttpRequestException("Method not allowed.", StatusCodes.Status405MethodNotAllowed)
+                    {
+                        _requiredMethod = HttpMethod.Options
+                    };
+                    break;
+                case RequestRejectionReason.ConnectMethodRequired:
+                    ex = new BadHttpRequestException("Method not allowed.", StatusCodes.Status405MethodNotAllowed)
+                    {
+                        _requiredMethod = HttpMethod.Connect
+                    };
                     break;
                 default:
                     ex = new BadHttpRequestException("Bad request.", StatusCodes.Status400BadRequest);

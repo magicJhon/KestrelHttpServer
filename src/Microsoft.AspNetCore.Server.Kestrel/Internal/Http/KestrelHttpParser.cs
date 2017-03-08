@@ -31,6 +31,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         public unsafe bool ParseRequestLine<T>(T handler, ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined) where T : IHttpRequestLineHandler
         {
+            // expected start line format: https://tools.ietf.org/html/rfc7230#section-3.1.1
+
             consumed = buffer.Start;
             examined = buffer.End;
 
@@ -65,6 +67,27 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                 span = startLineBuffer.ToSpan();
             }
+
+            // pathStart
+            // |    pathEnd and queryStart
+            // |    |       queryEnd
+            // |    |       |versionStart
+            // |    |       ||
+            // /path?query=1 HTTP/1.1
+
+            // pathStart
+            // |               pathEnd and queryStart
+            // |               |
+            // |               |       queryEnd
+            // |               |       |versionStart
+            // |               |       ||
+            // http://host/path?query=1 HTTP/1.1
+
+            // pathStart
+            // |    pathEnd, queryStart, and queryEnd
+            // |    |versionStart
+            // |    ||
+            // /path HTTP/1.1
 
             var pathStart = -1;
             var queryStart = -1;
@@ -162,6 +185,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                                     RejectRequestLine(span);
                                 }
                             }
+                            else if (ch == 0)
+                            {
+                                RejectRequestLine(span);
+                            }
 
                             if (pathStart == -1)
                             {
@@ -187,11 +214,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     case StartLineState.KnownVersion:
                         // REVIEW: We don't *need* to slice here but it makes the API
                         // nicer, slicing should be free :)
-                        if (span.Slice(i).GetKnownVersion(out httpVersion, out var versionLenght))
+                        if (span.Slice(i).GetKnownVersion(out httpVersion, out var versionLength))
                         {
                             // Update the index, current char, state and jump directly
                             // to the next state
-                            i += versionLenght + 1;
+                            i += versionLength + 1;
                             goto case StartLineState.NewLine;
                         }
 
@@ -242,7 +269,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             var targetBuffer = span.Slice(pathStart, queryEnd - pathStart);
             var query = span.Slice(queryStart, queryEnd - queryStart);
 
-            handler.OnStartLine(method, httpVersion, targetBuffer, pathBuffer, query, customMethod);
+            handler.OnStartLine(method, httpVersion, targetBuffer, pathBuffer, query, customMethod, span);
 
             consumed = end;
             examined = consumed;
@@ -430,7 +457,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             // Skip colon from value start
             var valueStart = nameEnd + 1;
             // Ignore start whitespace
-            for(; valueStart < valueEnd; valueStart++)
+            for (; valueStart < valueEnd; valueStart++)
             {
                 var ch = headerLine[valueStart];
                 if (ch != ByteTab && ch != ByteSpace && ch != ByteCR)
@@ -498,7 +525,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
             }
             return false;
-        found:
+            found:
             return true;
         }
 

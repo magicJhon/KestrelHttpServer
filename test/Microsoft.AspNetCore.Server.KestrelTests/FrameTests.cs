@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel;
 using Microsoft.AspNetCore.Server.Kestrel.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Internal;
 using Moq;
@@ -321,11 +322,45 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes(requestLine));
             var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
 
-            var exception = Assert.Throws<InvalidOperationException>(() =>
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
                 _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
             _input.Reader.Advance(_consumed, _examined);
 
-            Assert.Equal(new InvalidOperationException().Message, exception.Message);
+            Assert.Equal($"Invalid request line: '{Escape(requestLine)}'", exception.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(RequestLineWithInvalidRequestTargetData))]
+        public async Task TakeStartLineThrowsWhenRequestTargetIsInvalid(string requestLine)
+        {
+            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes(requestLine));
+            var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
+
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
+                _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
+            _input.Reader.Advance(_consumed, _examined);
+
+            Assert.Equal($"Invalid request line: '{Escape(requestLine)}'", exception.Message);
+        }
+
+
+        [Theory]
+        [MemberData(nameof(MethodNotAllowedTargetData))]
+        public async Task TakeStartLineThrowsWhenMethodNotAllowed(string requestLine, HttpMethod allowedMethod)
+        {
+            await _input.Writer.WriteAsync(Encoding.ASCII.GetBytes(requestLine));
+            var readableBuffer = (await _input.Reader.ReadAsync()).Buffer;
+
+            var exception = Assert.Throws<BadHttpRequestException>(() =>
+                _frame.TakeStartLine(readableBuffer, out _consumed, out _examined));
+            _input.Reader.Advance(_consumed, _examined);
+
+            var headers = new FrameResponseHeaders();
+            exception.SetAdditionalHeaders(headers);
+
+            Assert.Equal(405, exception.StatusCode);
+            Assert.Equal("Method not allowed.", exception.Message);
+            Assert.Equal(HttpUtilities.MethodToString(allowedMethod), headers.HeaderAllow.ToString());
         }
 
         [Fact]
@@ -515,6 +550,25 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 return data;
             }
         }
+
+        private string Escape(string requestLine)
+        {
+            var ellipsis = requestLine.Length > 32
+                ? "..."
+                : string.Empty;
+            return requestLine
+                .Substring(0, Math.Min(32, requestLine.Length))
+                .Replace("\r", @"\x0D")
+                .Replace("\n", @"\x0A")
+                .Replace("\0", @"\x00")
+                + ellipsis;
+        }
+
+        public static TheoryData<string> RequestLineWithInvalidRequestTargetData 
+            => HttpParsingData.RequestLineWithInvalidRequestTarget;
+
+        public static TheoryData<string, HttpMethod> MethodNotAllowedTargetData
+            => HttpParsingData.MethodNotAllowedRequestLine;
 
         public static TheoryData<string> RequestLineWithNullCharInTargetData
         {

@@ -27,6 +27,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 {
     public abstract partial class Frame : IFrameControl, IHttpRequestLineHandler, IHttpHeadersHandler
     {
+        private const byte ByteAsterisk = (byte)'*';
+        private const byte ByteForwardSlash = (byte)'/';
         private const byte BytePercentage = (byte)'%';
 
         private static readonly ArraySegment<byte> _endChunkedResponseBytes = CreateAsciiByteArraySegment("0\r\n\r\n");
@@ -38,6 +40,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private static readonly byte[] _bytesHttpVersion11 = Encoding.ASCII.GetBytes("HTTP/1.1 ");
         private static readonly byte[] _bytesEndHeaders = Encoding.ASCII.GetBytes("\r\n\r\n");
         private static readonly byte[] _bytesServer = Encoding.ASCII.GetBytes("\r\nServer: Kestrel");
+
+        private const string EmptyPath = "/";
+        private const string Asterisk = "*";
 
         private readonly object _onStartingSync = new Object();
         private readonly object _onCompletedSync = new Object();
@@ -819,6 +824,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 if (_requestRejectedException != null)
                 {
                     SetErrorResponseHeaders(statusCode: _requestRejectedException.StatusCode);
+                    _requestRejectedException.SetAdditionalHeaders(FrameResponseHeaders);
                 }
                 else
                 {
@@ -1179,6 +1185,15 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             throw BadHttpRequestException.GetException(reason, value);
         }
 
+        private void RejectRequestLine(Span<byte> span)
+        {
+            Debug.Assert(Log.IsEnabled(LogLevel.Information) == true, "Use RejectRequest instead to improve inlining when log is disabled");
+
+            const int MaxRequestLineError = 32;
+            var line = span.GetAsciiStringEscaped(MaxRequestLineError);
+            throw BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestLine, line);
+        }
+
         public void SetBadRequestState(RequestRejectionReason reason)
         {
             SetBadRequestState(BadHttpRequestException.GetException(reason));
@@ -1191,6 +1206,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             if (!HasResponseStarted)
             {
                 SetErrorResponseHeaders(ex.StatusCode);
+                ex.SetAdditionalHeaders(FrameResponseHeaders);
             }
 
             _keepAlive = false;
@@ -1216,8 +1232,59 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             Log.ApplicationError(ConnectionId, ex);
         }
 
-        public void OnStartLine(HttpMethod method, HttpVersion version, Span<byte> target, Span<byte> path, Span<byte> query, Span<byte> customMethod)
+        public void OnStartLine(HttpMethod method, HttpVersion version, Span<byte> target, Span<byte> path, Span<byte> query, Span<byte> customMethod, Span<byte> line)
         {
+            if (target.Length == 0)
+            {
+                if (Log.IsEnabled(LogLevel.Information))
+                {
+                    RejectRequestLine(line);
+                }
+
+                throw BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestLine);
+            }
+
+            var ch = target[0];
+            if (ch == ByteForwardSlash)
+            {
+                // origin-form.
+                // The most common form of request-target.
+                // https://tools.ietf.org/html/rfc7230#section-5.3.1
+                OnOriginFormTarget(method, version, target, path, query, customMethod);
+            }
+            else if (ch == ByteAsterisk && target.Length == 1)
+            {
+                OnAsteriskFormTarget(method);
+            }
+            else if (target.GetKnownHttpScheme(out var scheme))
+            {
+                OnAbsoluteFormTarget(target, query, line);
+            }
+            else
+            {
+                // Assume anything else is considered authority form.
+                // FYI: this should be an edge case. This should only happen when
+                // a client mistakenly things this server is a proxy server.
+
+                OnAuthorityFormTarget(method, target, line);
+            }
+
+            Method = method != HttpMethod.Custom
+                ? HttpUtilities.MethodToString(method) ?? string.Empty
+                : customMethod.GetAsciiStringNonNullCharacters();
+            HttpVersion = HttpUtilities.VersionToString(version);
+
+            Debug.Assert(RawTarget != null, "RawTarget was not set");
+            Debug.Assert(Method != null, "Method was not set");
+            Debug.Assert(Path != null, "Path was not set");
+            Debug.Assert(QueryString != "QueryString was not set");
+            Debug.Assert(HttpVersion != "HttpVersion was not set");
+        }
+
+        private void OnOriginFormTarget(HttpMethod method, HttpVersion version, Span<byte> target, Span<byte> path, Span<byte> query, Span<byte> customMethod)
+        {
+            Debug.Assert(target[0] == ByteForwardSlash, "Should only be called when path starts with /");
+
             // URIs are always encoded/escaped to ASCII https://tools.ietf.org/html/rfc3986#page-11
             // Multibyte Internationalized Resource Identifiers (IRIs) are first converted to utf8;
             // then encoded/escaped to ASCII  https://www.ietf.org/rfc/rfc3987.txt "Mapping of IRIs to URIs"
@@ -1250,34 +1317,103 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
             }
 
-            var normalizedTarget = PathNormalizer.RemoveDotSegments(requestUrlPath);
-            if (method != HttpMethod.Custom)
-            {
-                Method = HttpUtilities.MethodToString(method) ?? string.Empty;
-            }
-            else
-            {
-                Method = customMethod.GetAsciiStringNonNullCharacters();
-            }
-
             QueryString = query.GetAsciiStringNonNullCharacters();
             RawTarget = rawTarget;
-            HttpVersion = HttpUtilities.VersionToString(version);
+            SetNormalizedPath(requestUrlPath);
+        }
 
+
+        private void OnAuthorityFormTarget(HttpMethod method, Span<byte> target, Span<byte> line)
+        {
+            // TODO Validate that target is a correct host[:port] string.
+            // Reject as 400 if not. This is just a quick scan for invalid characters
+            // but doesn't check that the target fully matches the URI spec.
+            for (var i = 0; i < target.Length; i++)
+            {
+                var ch = (char)target[i];
+                if (!char.IsLetterOrDigit(ch) && ch != ':' && ch != '.')
+                {
+                    if (Log.IsEnabled(LogLevel.Information))
+                    {
+                        RejectRequestLine(line);
+                    }
+
+                    throw BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestLine);
+                }
+            }
+
+            // The authority-form of request-target is only used for CONNECT
+            // requests (https://tools.ietf.org/html/rfc7231#section-4.3.6).
+
+            if (method != HttpMethod.Connect)
+            {
+                RejectRequest(RequestRejectionReason.ConnectMethodRequired);
+            }
+
+            // When making a CONNECT request to establish a tunnel through one or
+            // more proxies, a client MUST send only the target URI's authority
+            // component(excluding any userinfo and its "@" delimiter) as the
+            // request - target.For example,
+            //
+            //  CONNECT www.example.com:80 HTTP/1.1
+            //
+            // Allowed characters in the 'host + port' section of authority.
+            // See https://tools.ietf.org/html/rfc3986#section-3.2
+
+            RawTarget = target.GetAsciiStringNonNullCharacters();
+            Path = string.Empty;
+            PathBase = string.Empty;
+            QueryString = string.Empty;
+        }
+
+        private void OnAsteriskFormTarget(HttpMethod method)
+        {
+            // The asterisk-form of request-target is only used for a server-wide
+            // OPTIONS request (https://tools.ietf.org/html/rfc7231#section-4.3.7).
+            if (method != HttpMethod.Options)
+            {
+                RejectRequest(RequestRejectionReason.OptionsMethodRequired);
+            }
+
+            RawTarget = Asterisk;
+            Path = string.Empty;
+            PathBase = string.Empty;
+            QueryString = string.Empty;
+        }
+
+        private void OnAbsoluteFormTarget(Span<byte> target, Span<byte> query, Span<byte> line)
+        {
+            // absolute-form
+            // https://tools.ietf.org/html/rfc7230#section-5.3.2
+
+            RawTarget = target.GetAsciiStringNonNullCharacters();
+
+            if (!Uri.TryCreate(RawTarget, UriKind.Absolute, out var uri))
+            {
+                if (Log.IsEnabled(LogLevel.Information))
+                {
+                    RejectRequestLine(line);
+                }
+
+                throw BadHttpRequestException.GetException(RequestRejectionReason.InvalidRequestLine);
+            }
+
+            SetNormalizedPath(uri.LocalPath);
+            // don't use uri.Query because we need the unescaped version
+            QueryString = query.GetAsciiStringNonNullCharacters();
+        }
+
+        private void SetNormalizedPath(string requestPath)
+        {
+            var normalizedTarget = PathNormalizer.RemoveDotSegments(requestPath);
             if (RequestUrlStartsWithPathBase(normalizedTarget, out bool caseMatches))
             {
                 PathBase = caseMatches ? _pathBase : normalizedTarget.Substring(0, _pathBase.Length);
                 Path = normalizedTarget.Substring(_pathBase.Length);
             }
-            else if (rawTarget[0] == '/') // check rawTarget since normalizedTarget can be "" or "/" after dot segment removal
-            {
-                Path = normalizedTarget;
-            }
             else
             {
-                Path = string.Empty;
-                PathBase = string.Empty;
-                QueryString = string.Empty;
+                Path = normalizedTarget;
             }
         }
 
