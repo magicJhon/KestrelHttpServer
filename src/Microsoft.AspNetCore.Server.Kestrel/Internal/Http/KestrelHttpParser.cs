@@ -69,6 +69,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 customMethod = GetUnknownMethod(data, length, out offset);
             }
 
+            if (data[offset] != ByteSpace)
+            {
+                RejectRequestLine(data, length);
+            }
+
             // Skip space
             offset++;
 
@@ -121,6 +126,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 RejectRequestLine(data, length);
             }
 
+            // End of path or start of query string not found
+            if (offset == length)
+            {
+                RejectRequestLine(data, length);
+            }
+
             var pathBuffer = new Span<byte>(data + pathStart, offset - pathStart);
 
             var queryStart = offset;
@@ -138,6 +149,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
             }
 
+            // End of query string not found
+            if (offset == length)
+            {
+                RejectRequestLine(data, length);
+            }
+
             var targetBuffer = new Span<byte>(data + pathStart, offset - pathStart);
             var query = new Span<byte>(data + queryStart, offset - queryStart);
 
@@ -148,10 +165,21 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             var httpVersion = HttpUtilities.GetKnownVersion(data + offset, length - offset);
             if (httpVersion == HttpVersion.Unknown)
             {
-                RejectUnknownVersion(data, length, offset);
+                if (data[offset] == ByteCR || data[length - 2] != ByteCR)
+                {
+                    RejectRequestLine(data, length);
+                }
+                else
+                {
+                    RequestRejectionUtilities.RejectRequest(
+                        RequestRejectionReason.UnrecognizedHTTPVersion,
+                        detail: data + offset,
+                        detailLength: length - offset - 2,
+                        logDetail: Log.IsEnabled(LogLevel.Information));
+                }
             }
 
-            //  After version 8 bytes and cr 1 byte, expect lf
+            // After version's 8 bytes and CR, expect LF
             if (data[offset + 8 + 1] != ByteLF)
             {
                 RejectRequestLine(data, length);
@@ -480,36 +508,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 c == '~';
         }
 
-        private void RejectRequestLine(Span<byte> span)
+        private unsafe void RejectRequestLine(byte* data, int length)
         {
             RequestRejectionUtilities.RejectRequest(
                 RequestRejectionReason.InvalidRequestLine,
-                detail: span,
+                detail: data,
+                detailLength: length,
                 logDetail: Log.IsEnabled(LogLevel.Information));
-        }
-
-        private unsafe BadHttpRequestException GetRejectUnknownVersion(byte* data, int length, int versionStart)
-        {
-            var span = new Span<byte>(data, length);
-            length -= versionStart;
-            for (var i = 0; i < length; i++)
-            {
-                var ch = span[i + versionStart];
-                if (ch == ByteCR)
-                {
-                    if (i == 0)
-                    {
-                        return GetRejectRequestLineException(span);
-                    }
-                    else
-                    {
-                        return BadHttpRequestException.GetException(RequestRejectionReason.UnrecognizedHTTPVersion,
-                            span.Slice(versionStart, i).GetAsciiStringEscaped(32));
-                    }
-                }
-            }
-
-            return GetRejectRequestLineException(span);
         }
 
         private unsafe void RejectRequestHeader(byte* headerLine, int length)
