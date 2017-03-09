@@ -69,11 +69,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 customMethod = GetUnknownMethod(data, length, out offset);
             }
 
-            if (data[offset] != ByteSpace)
-            {
-                RejectRequestLine(data, length);
-            }
-
             // Skip space
             offset++;
 
@@ -122,7 +117,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
             if (pathStart == -1)
             {
-                // End of path not found
+                // Start of path not found
                 RejectRequestLine(data, length);
             }
 
@@ -134,8 +129,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
             var pathBuffer = new Span<byte>(data + pathStart, offset - pathStart);
 
-            var queryStart = offset;
             // Query string
+            var queryStart = offset;
             if (ch == ByteQuestionMark)
             {
                 // We have a query string
